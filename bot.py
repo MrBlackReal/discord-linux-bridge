@@ -49,16 +49,37 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 docker_client = docker.from_env()
 
 def get_container_id() -> str:
+    """Return the stable container name for the current distro image.
+
+    The container name is derived from CONTAINER_BASE_NAME and the distro
+    image name (the part before the ':'), for example "discord-linux-shell-arch".
+    """
     return f"{CONTAINER_BASE_NAME}-{CURRENT_DISTRO_IMAGE.split(':')[0]}"
 
 def get_sandbox():
+    """Return a small dict describing the current sandbox configuration.
+
+    Returns:
+        dict: { "container": <container_name>, "distro": <image> }
+    """
     return {
         "container": get_container_id(),
         "distro": CURRENT_DISTRO_IMAGE
     }
 
 def ensure_container_running():
-    """Creates or retrieves the presistent linux container"""
+    """Create or retrieve the persistent Linux container.
+
+    Behavior:
+    - If a container with the expected name exists and is stopped, it will be started.
+    - If the container does not exist, it will be created with constrained resources
+      and hardened settings (read-only root, dropped capabilities).
+    - Returns the docker Container object on success.
+
+    Raises:
+        docker.errors.DockerException: on unexpected Docker API errors.
+        Exception: if container creation fails for another reason.
+    """
     global CURRENT_DISTRO_IMAGE, persistent_container
 
     container_id = get_container_id()
@@ -108,6 +129,11 @@ def ensure_container_running():
 # --- Bot events ---
 @bot.event
 async def on_ready():
+    """Discord on_ready event handler.
+
+    Syncs application (slash) commands and ensures the sandbox container exists
+    and is running. Logs progress and failures.
+    """
     global persistent_container
 
     try:
@@ -128,7 +154,22 @@ async def on_ready():
 @bot.tree.command(name="term", description="Execute a command in the sandbox")
 @app_commands.describe(command="The shell command to execute")
 async def term(interaction: discord.Interaction, command: str):
-    """Executes a shell command in the persistent sandbox."""
+    """Execute a shell command in the persistent sandbox container.
+
+    The command is run with /bin/sh -c inside the container. The function
+    performs an auto-recovery health check and attempts to rebuild the sandbox
+    if the container appears unhealthy. Results (stdout/stderr) are returned
+    to the user as Discord messages and truncated to fit message length limits.
+
+    Parameters:
+        interaction (discord.Interaction): The invoking interaction.
+        command (str): Shell command to execute.
+
+    Behavior notes:
+    - If the underlying exec call returns exit code 137 (killed), a timeout
+      message is shown.
+    - Large outputs are truncated to fit Discord's message limit.
+    """
     global persistent_container, CURRENT_DISTRO_IMAGE
 
     await interaction.response.defer()
@@ -210,7 +251,10 @@ async def term(interaction: discord.Interaction, command: str):
 
 @bot.tree.command(name="distros", description="List all supported Linux distros")
 async def list_distros(interaction: discord.Interaction):
-    """Lists the available sandbox distributions."""
+    """List available sandbox distributions.
+
+    Marks the currently active distro in the list.
+    """
     lines = []
     for name, image in SUPPORTED_DISTROS.items():
         if image == CURRENT_DISTRO_IMAGE:
@@ -226,7 +270,17 @@ async def list_distros(interaction: discord.Interaction):
 @bot.tree.command(name="distro", description="Switch the sandbox distro")
 @app_commands.describe(name="The name of the distro to switch to (e.g., 'alpine')")
 async def switch_distro(interaction: discord.Interaction, name: str):
-    """Stops the current container and starts a new one with the chosen distro."""
+    """Stop the current sandbox container and start a new one with the chosen distro.
+
+    Parameters:
+        interaction (discord.Interaction): The invoking interaction.
+        name (str): The distro name to switch to (must be a key of SUPPORTED_DISTROS).
+
+    Behavior:
+        - Validates that the requested distro is supported.
+        - Updates CURRENT_DISTRO_IMAGE and recreates the persistent container.
+        - Attempts to stop and remove the previous container.
+    """
     global persistent_container, CURRENT_DISTRO_IMAGE
 
     await interaction.response.defer()
@@ -278,7 +332,10 @@ async def switch_distro(interaction: discord.Interaction, name: str):
 async def distro_autocomplete(
     interaction: discord.Interaction, current: str
 ) -> List[app_commands.Choice[str]]:
-    """Provides autocomplete choices for the /distro command."""
+    """Provide autocomplete choices for the /distro command.
+
+    Returns distro names that contain the current typed substring.
+    """
     choices = list(SUPPORTED_DISTROS.keys())
     return [
         app_commands.Choice(name=choice, value=choice)
@@ -288,6 +345,11 @@ async def distro_autocomplete(
 
 
 def main():
+    """Entry point: run the bot if the module is executed directly.
+
+    Reads DISCORD_TOKEN from the environment and runs the bot. If the token is
+    not present, logs a critical error and exits.
+    """
     if not (__name__ == "__main__"):
         return
 
