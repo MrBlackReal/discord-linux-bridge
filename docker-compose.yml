@@ -1,0 +1,27 @@
+services:
+  bot:
+    # 1. Build from the Dockerfile in the current directory
+    build: .
+    
+    # 2. Assign a friendly name to the running container
+    container_name: discord-linux-bridge
+    
+    # 3. CRUCIAL: Set the automatic restart policy
+    # If the bot fails (exits with a non-zero code, e.g., due to a crash/exploit attempt), 
+    # Docker will immediately try to restart it.
+    restart: unless-stopped
+
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    
+    # 4. Securely pass the environment variables
+    environment:
+      # The bot script (bot.py) retrieves this token.
+      # The subprocess calls within bot.py are protected (env=SAFE_ENV)
+      # to prevent users from stealing it.
+      DISCORD_TOKEN: "token"
+    
+    # 5. Resource Limits (Recommended for public-facing bots)
+    # This prevents the bot from consuming all your server's resources.
+    mem_limit: 512m
+    cpu_shares: 512 # Roughly 50% of a CPU core
