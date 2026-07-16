@@ -167,9 +167,3 @@ Contributions, bug reports, and improvements are welcome. Suggested improvements
 - Add tests for command execution and Docker interactions
 
 ---
-
-## License
-
-No license file is included by default in this repository. Add a LICENSE file (for example, MIT) and update this section accordingly.
-
----
